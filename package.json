@@ -1,10 +1,35 @@
-import { defineConfig } from "drizzle-kit";
-
-export default defineConfig({
-	schema: "../../packages/db-schema/src/schema.ts",
-	out: "../../db/migrations",
-	dialect: "sqlite",
-	dbCredentials: {
-		url: process.env.DATABASE_URL || "./chirp.db",
-	},
-});
+{
+  "name": "chirp-monorepo",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "turbo run dev",
+    "dev:user": "turbo run dev --filter=client-user",
+    "dev:admin": "turbo run dev --filter=client-admin",
+    "dev:api": "turbo run dev --filter=api",
+    "build": "turbo run build --filter='[HEAD^]...'",
+    "typecheck": "turbo run typecheck --filter='[HEAD^]'",
+    "lint": "turbo run lint --filter='[HEAD^]'",
+    "lint:fix": "turbo run lint --filter='[HEAD^]' -- --fix",
+    "test": "turbo run test --filter='[HEAD^]'",
+    "test:unit": "turbo run test:unit --filter='[HEAD^]'",
+    "test:e2e": "turbo run test:e2e --filter='[HEAD^]'",
+    "proto:generate": "turbo run proto:generate",
+    "db:generate": "turbo run db:generate",
+    "db:migrate": "turbo run db:migrate",
+    "db:seed": "turbo run db:seed",
+    "clean": "turbo run clean --no-cache && turbo prune --scope='*' --out-dir ./dist",
+    "prepare": "husky install"
+  },
+  "dependencies": {},
+  "devDependencies": {
+    "@turbo/gen": "^1.12.4",
+    "husky": "^9.0.11",
+    "turbo": "^1.12.4"
+  },
+  "engines": {
+    "node": ">=20.0.0",
+    "pnpm": ">=9.0.0"
+  }
+}
