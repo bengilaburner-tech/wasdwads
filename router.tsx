@@ -1,70 +1,202 @@
 import * as stylex from "@stylexjs/stylex";
-import { Link } from "@tanstack/react-router";
-import type { ReactNode } from "react";
-import { colors } from "../../tokens.stylex";
+import { Link, useNavigate, useRouter } from "@tanstack/react-router";
+import {
+	ClipboardList,
+	FileText,
+	Flag,
+	LayoutDashboard,
+	LogOut,
+	MessageSquare,
+	Shield,
+	Users,
+} from "lucide-react";
+import { useAdminUser } from "../../routes/__root";
+import { logoutAdmin } from "../../server/functions/auth";
+import { colors, radii, semanticColors, spacing } from "../../tokens.stylex";
 
 const styles = stylex.create({
-	mention: {
-		color: colors.blue600,
+	header: {
+		backgroundColor: semanticColors.surfaceOverlay,
+		backdropFilter: "blur(20px) saturate(180%)",
+		borderBottom: `1px solid ${semanticColors.borderSubtle}`,
+		position: "sticky",
+		top: 0,
+		zIndex: 50,
+	},
+	container: {
+		maxWidth: "1400px",
+		marginInline: "auto",
+		paddingInline: spacing.lg,
+		paddingBlock: "0.625rem",
+		display: "flex",
+		alignItems: "center",
+		justifyContent: "space-between",
+	},
+	logoSection: {
+		display: "flex",
+		alignItems: "center",
+		gap: spacing.md,
+	},
+	logo: {
+		display: "flex",
+		alignItems: "center",
+		gap: spacing.sm,
 		textDecoration: "none",
+		color: colors.white,
+		fontWeight: 800,
+		fontSize: "1.125rem",
+		letterSpacing: "-0.025em",
+	},
+	logoIcon: {
+		color: colors.indigo400,
+	},
+	badge: {
+		backgroundImage: `linear-gradient(135deg, ${colors.indigo500}, ${colors.blue600})`,
+		color: colors.white,
+		fontSize: "0.5625rem",
+		fontWeight: 700,
+		paddingInline: spacing.sm,
+		paddingBlock: "2px",
+		borderRadius: radii.sm,
+		textTransform: "uppercase",
+		letterSpacing: "0.08em",
+	},
+	nav: {
+		display: "flex",
+		alignItems: "center",
+		gap: "2px",
+	},
+	navLink: {
+		display: "flex",
+		alignItems: "center",
+		gap: spacing.xs,
+		paddingInline: spacing.md,
+		paddingBlock: "0.375rem",
+		borderRadius: radii.md,
+		textDecoration: "none",
+		color: semanticColors.textTertiary,
+		fontSize: "0.8125rem",
 		fontWeight: 500,
-		transition: "color 0.2s",
+		backgroundColor: "transparent",
+		transition: "all 0.2s cubic-bezier(0.4, 0, 0.2, 1)",
 		":hover": {
-			color: colors.blue700,
-			textDecoration: "underline",
+			backgroundColor: semanticColors.bgHover,
+			color: semanticColors.textPrimary,
 		},
+	},
+	navLinkActive: {
+		backgroundColor: semanticColors.primaryLight,
+		color: colors.indigo400,
+	},
+	actions: {
+		display: "flex",
+		alignItems: "center",
+		gap: spacing.md,
+	},
+	logoutButton: {
+		display: "flex",
+		alignItems: "center",
+		gap: spacing.xs,
+		paddingInline: spacing.md,
+		paddingBlock: "0.375rem",
+		borderRadius: radii.md,
+		border: "none",
+		backgroundColor: "transparent",
+		color: semanticColors.textSecondary,
+		fontSize: "0.8125rem",
+		fontWeight: 500,
+		cursor: "pointer",
+		transition: "all 0.2s cubic-bezier(0.4, 0, 0.2, 1)",
+		":hover": {
+			backgroundColor: semanticColors.errorLight,
+			color: colors.red400,
+		},
+	},
+	userInfo: {
+		display: "flex",
+		alignItems: "center",
+		gap: spacing.sm,
+		color: semanticColors.textTertiary,
+		fontSize: "0.8125rem",
+	},
+	username: {
+		fontWeight: 500,
+		color: semanticColors.textPrimary,
+	},
+	roleBadge: {
+		backgroundColor: semanticColors.primaryLight,
+		color: colors.indigo400,
+		fontSize: "0.5625rem",
+		fontWeight: 600,
+		paddingInline: spacing.sm,
+		paddingBlock: "2px",
+		borderRadius: radii.sm,
+		textTransform: "uppercase",
+		letterSpacing: "0.05em",
 	},
 });
 
-interface ParsedContentProps {
-	content: string;
-}
+export function AdminHeader() {
+	const router = useRouter();
+	const navigate = useNavigate();
+	const adminUser = useAdminUser();
+	const currentPath = router.state.location.pathname;
 
-/**
- * Renders content with @mentions as clickable links to user profiles
- */
-export function ParsedContent({ content }: ParsedContentProps) {
-	const mentionPattern = /@([a-zA-Z0-9_]+)/g;
-	const parts: (string | ReactNode)[] = [];
-	let lastIndex = 0;
-	let match: RegExpExecArray | null;
-	let key = 0;
+	const handleLogout = async () => {
+		await logoutAdmin();
+		navigate({ to: "/login" });
+	};
 
-	// Reset regex state
-	mentionPattern.lastIndex = 0;
+	const navItems = [
+		{ to: "/", icon: LayoutDashboard, label: "Dashboard" },
+		{ to: "/users", icon: Users, label: "Users" },
+		{ to: "/posts", icon: FileText, label: "Posts" },
+		{ to: "/comments", icon: MessageSquare, label: "Comments" },
+		{ to: "/reports", icon: Flag, label: "Reports" },
+		{ to: "/audit", icon: ClipboardList, label: "Audit Log" },
+	];
 
-	while ((match = mentionPattern.exec(content)) !== null) {
-		// Add text before mention
-		if (match.index > lastIndex) {
-			parts.push(content.slice(lastIndex, match.index));
-		}
+	return (
+		<header {...stylex.props(styles.header)}>
+			<div {...stylex.props(styles.container)}>
+				<div {...stylex.props(styles.logoSection)}>
+					<Link to="/" {...stylex.props(styles.logo)}>
+						<Shield size={24} {...stylex.props(styles.logoIcon)} />
+						Chirp
+					</Link>
+					<span {...stylex.props(styles.badge)}>Admin</span>
+				</div>
 
-		// Add mention link
-		const username = match[1];
-		parts.push(
-			<Link
-				key={key++}
-				to="/users/$username"
-				params={{ username }}
-				{...stylex.props(styles.mention)}
-				onClick={(e) => e.stopPropagation()}
-			>
-				@{username}
-			</Link>,
-		);
+				<nav {...stylex.props(styles.nav)}>
+					{navItems.map((item) => {
+						const Icon = item.icon;
+						const isActive = currentPath === item.to;
+						return (
+							<Link
+								key={item.to}
+								to={item.to}
+								{...stylex.props(styles.navLink, isActive && styles.navLinkActive)}
+							>
+								<Icon size={16} />
+								{item.label}
+							</Link>
+						);
+					})}
+				</nav>
 
-		lastIndex = match.index + match[0].length;
-	}
-
-	// Add remaining text
-	if (lastIndex < content.length) {
-		parts.push(content.slice(lastIndex));
-	}
-
-	// If no mentions found, return content as-is
-	if (parts.length === 0) {
-		return <>{content}</>;
-	}
-
-	return <>{parts}</>;
+				<div {...stylex.props(styles.actions)}>
+					{adminUser && (
+						<div {...stylex.props(styles.userInfo)}>
+							<span {...stylex.props(styles.username)}>{adminUser.username}</span>
+							<span {...stylex.props(styles.roleBadge)}>{adminUser.role}</span>
+						</div>
+					)}
+					<button type="button" onClick={handleLogout} {...stylex.props(styles.logoutButton)}>
+						<LogOut size={16} />
+						Logout
+					</button>
+				</div>
+			</div>
+		</header>
+	);
 }

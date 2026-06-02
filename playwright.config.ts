@@ -1,10 +1,10 @@
 {
-	"name": "@chirp/client-user",
+	"name": "@chirp/client-admin",
 	"version": "1.0.0",
 	"private": true,
 	"type": "module",
 	"scripts": {
-		"dev": "vite dev --port 3000",
+		"dev": "vite dev --port 3002",
 		"build": "vite build",
 		"start": "node .output/server/index.mjs",
 		"preview": "vite preview",
