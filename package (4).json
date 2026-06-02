@@ -1,0 +1,42 @@
+import { beforeEach, describe, expect, it, vi } from "vitest";
+
+vi.mock("@grpc/grpc-js", () => ({
+	ChannelCredentials: {
+		createSsl: vi.fn(() => ({ secure: true })),
+		createInsecure: vi.fn(() => ({ secure: false })),
+	},
+}));
+
+describe("Chirp gRPC client transport", () => {
+	beforeEach(() => {
+		vi.resetModules();
+		delete process.env.NODE_ENV;
+	});
+
+	it("uses insecure transport when secure=false", async () => {
+		const { createChirpClient } = await import("./client");
+		createChirpClient({ host: "localhost:50051", secure: false });
+
+		const { ChannelCredentials } = await import("@grpc/grpc-js");
+		expect(ChannelCredentials.createInsecure).toHaveBeenCalled();
+	});
+
+	it("uses secure transport when secure=true", async () => {
+		const { createChirpClient } = await import("./client");
+		createChirpClient({ host: "localhost:50051", secure: true });
+
+		const { ChannelCredentials } = await import("@grpc/grpc-js");
+		expect(ChannelCredentials.createSsl).toHaveBeenCalled();
+	});
+
+	it("defaults to secure transport in production", async () => {
+		process.env.NODE_ENV = "production";
+		vi.resetModules();
+
+		const { createChirpClient } = await import("./client");
+		createChirpClient({ host: "localhost:50051" });
+
+		const { ChannelCredentials } = await import("@grpc/grpc-js");
+		expect(ChannelCredentials.createSsl).toHaveBeenCalled();
+	});
+});
