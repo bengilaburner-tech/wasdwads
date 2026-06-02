@@ -1,25 +1,140 @@
-import type { FullConfig } from "@playwright/test";
+import { and, eq, inArray, sql } from "drizzle-orm";
+import { db, schema } from "../db";
 
-/**
- * Warm up Vite's on-demand compilation before any tests start.
- * Without this, the first 5 parallel workers all hit an uncompiled
- * Vite server, causing 60s+ timeouts on cold starts.
- */
-async function globalSetup(_config: FullConfig) {
-	const baseURL = "http://localhost:3002";
+const { posts, users, likes, comments, follows } = schema;
 
-	// Fetch the login page to trigger Vite's initial module compilation.
-	for (let attempt = 0; attempt < 3; attempt++) {
-		try {
-			const response = await fetch(`${baseURL}/login`);
-			if (response.ok) {
-				await new Promise((resolve) => setTimeout(resolve, 2000));
-				return;
-			}
-		} catch {
-			await new Promise((resolve) => setTimeout(resolve, 2000));
-		}
-	}
+export type PostAggregate = {
+	postId: string;
+	likeCount: number;
+	commentCount: number;
+	isLiked: boolean;
+};
+
+export function mapById<T extends { id: string }>(items: T[]) {
+	return items.reduce<Record<string, T>>((acc, item) => {
+		acc[item.id] = item;
+		return acc;
+	}, {});
 }
 
-export default globalSetup;
+export async function loadLikeCounts(postIds: string[]) {
+	if (postIds.length === 0) {
+		return {} as Record<string, number>;
+	}
+
+	const results = await db
+		.select({ postId: likes.postId, count: sql<number>`count(*)` })
+		.from(likes)
+		.where(inArray(likes.postId, postIds))
+		.groupBy(likes.postId);
+
+	return results.reduce<Record<string, number>>((acc, row) => {
+		acc[row.postId] = row.count || 0;
+		return acc;
+	}, {});
+}
+
+export async function loadCommentCounts(postIds: string[]) {
+	if (postIds.length === 0) {
+		return {} as Record<string, number>;
+	}
+
+	const results = await db
+		.select({ postId: comments.postId, count: sql<number>`count(*)` })
+		.from(comments)
+		.where(inArray(comments.postId, postIds))
+		.groupBy(comments.postId);
+
+	return results.reduce<Record<string, number>>((acc, row) => {
+		acc[row.postId] = row.count || 0;
+		return acc;
+	}, {});
+}
+
+export async function loadLikedStatus(postIds: string[], userId?: string) {
+	if (!userId || postIds.length === 0) {
+		return {} as Record<string, boolean>;
+	}
+
+	const results = await db
+		.select({ postId: likes.postId })
+		.from(likes)
+		.where(and(eq(likes.userId, userId), inArray(likes.postId, postIds)));
+
+	return results.reduce<Record<string, boolean>>((acc, row) => {
+		acc[row.postId] = true;
+		return acc;
+	}, {});
+}
+
+export async function loadPostsWithAuthors(postIds: string[]) {
+	if (postIds.length === 0) {
+		return [];
+	}
+
+	return db
+		.select({
+			id: posts.id,
+			content: posts.content,
+			createdAt: posts.createdAt,
+			updatedAt: posts.updatedAt,
+			author: {
+				id: users.id,
+				username: users.username,
+				displayName: users.displayName,
+				avatarUrl: users.avatarUrl,
+			},
+		})
+		.from(posts)
+		.leftJoin(users, eq(posts.authorId, users.id))
+		.where(inArray(posts.id, postIds));
+}
+
+export async function loadUserProfileCounts(userId: string, requesterId?: string) {
+	const result = await db
+		.select({
+			followerCount: sql<number>`(SELECT count(*) FROM follows WHERE following_id = ${userId})`,
+			followingCount: sql<number>`(SELECT count(*) FROM follows WHERE follower_id = ${userId})`,
+			postCount: sql<number>`(SELECT count(*) FROM posts WHERE author_id = ${userId})`,
+			isFollowing: requesterId
+				? sql<boolean>`EXISTS (SELECT 1 FROM follows WHERE follower_id = ${requesterId} AND following_id = ${userId})`
+				: sql<boolean>`0`,
+		})
+		.from(users)
+		.where(eq(users.id, userId))
+		.get();
+
+	if (!result) {
+		return {
+			followerCount: 0,
+			followingCount: 0,
+			postCount: 0,
+			isFollowing: false,
+		};
+	}
+
+	return {
+		followerCount: result.followerCount || 0,
+		followingCount: result.followingCount || 0,
+		postCount: result.postCount || 0,
+		isFollowing: !!result.isFollowing,
+	};
+}
+
+export async function loadPostAggregates(postIds: string[], userId?: string) {
+	const [likeCounts, commentCounts, likedStatus] = await Promise.all([
+		loadLikeCounts(postIds),
+		loadCommentCounts(postIds),
+		loadLikedStatus(postIds, userId),
+	]);
+
+	return postIds.reduce<Record<string, PostAggregate>>((acc, postId) => {
+		acc[postId] = {
+			postId,
+			likeCount: likeCounts[postId] || 0,
+			commentCount: commentCounts[postId] || 0,
+			isLiked: likedStatus[postId] || false,
+		};
+		return acc;
+	}, {});
+}

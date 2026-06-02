@@ -1,79 +1,227 @@
-import { expect, test } from "@playwright/test";
-import { loginAs, waitForHydration } from "./fixtures/test-helpers";
+import { and, desc, eq, sql } from "drizzle-orm";
+import { db, schema } from "../db";
+import { processMentions } from "./mentions.service";
+import { generateId } from "./utils";
 
-test.describe("Bookmarks", () => {
-	test.beforeEach(async ({ page }) => {
-		await loginAs(page, "alice");
+const { posts, users, likes, comments } = schema;
+
+export interface CreatePostInput {
+	content: string;
+	authorId: string;
+}
+
+export interface UpdatePostInput {
+	postId: string;
+	content: string;
+	userId: string;
+}
+
+export interface GetPostsOptions {
+	limit?: number;
+	offset?: number;
+	userId?: string; // For checking if liked
+}
+
+async function getPostCounts(postId: string, userId?: string) {
+	const likesResult = await db
+		.select({ count: sql<number>`count(*)` })
+		.from(likes)
+		.where(eq(likes.postId, postId))
+		.get();
+
+	const commentsResult = await db
+		.select({ count: sql<number>`count(*)` })
+		.from(comments)
+		.where(eq(comments.postId, postId))
+		.get();
+
+	let isLiked = false;
+	if (userId) {
+		const likeStatus = await db
+			.select()
+			.from(likes)
+			.where(and(eq(likes.postId, postId), eq(likes.userId, userId)))
+			.get();
+		isLiked = !!likeStatus;
+	}
+
+	return {
+		likeCount: likesResult?.count || 0,
+		commentCount: commentsResult?.count || 0,
+		isLiked,
+	};
+}
+
+export async function createPost(input: CreatePostInput) {
+	if (!input.content || input.content.length === 0) {
+		throw new Error("Post content is required");
+	}
+
+	if (input.content.length > 280) {
+		throw new Error("Post content must be 280 characters or less");
+	}
+
+	const postId = generateId();
+	await db.insert(posts).values({
+		id: postId,
+		content: input.content,
+		authorId: input.authorId,
 	});
 
-	test("should bookmark a post", async ({ page }) => {
-		// Find a bookmark button (bookmark icon in post actions)
-		const bookmarkButton = page.locator('button[title="Bookmark"]').first();
-		await expect(bookmarkButton).toBeVisible();
+	// Process mentions and create notifications
+	await processMentions(input.content, input.authorId, postId);
 
-		await bookmarkButton.click();
-		await waitForHydration(page);
+	return { postId };
+}
 
-		// Button should change state (the same locator should now have "Remove bookmark" title)
-		await expect(page.locator('button[title="Remove bookmark"]').first()).toBeVisible();
-	});
+export async function getPost(postId: string, userId?: string) {
+	const post = await db
+		.select({
+			id: posts.id,
+			content: posts.content,
+			createdAt: posts.createdAt,
+			updatedAt: posts.updatedAt,
+			author: {
+				id: users.id,
+				username: users.username,
+				displayName: users.displayName,
+				avatarUrl: users.avatarUrl,
+			},
+		})
+		.from(posts)
+		.leftJoin(users, eq(posts.authorId, users.id))
+		.where(eq(posts.id, postId))
+		.get();
 
-	test("should unbookmark a post", async ({ page }) => {
-		// First bookmark a post
-		const bookmarkButton = page.locator('button[title="Bookmark"]').first();
-		await bookmarkButton.click();
-		await waitForHydration(page);
+	if (!post) {
+		throw new Error("Post not found");
+	}
 
-		// Now unbookmark it
-		const unbookmarkButton = page.locator('button[title="Remove bookmark"]').first();
-		await unbookmarkButton.click();
-		await waitForHydration(page);
+	const counts = await getPostCounts(postId, userId);
 
-		// Button should revert to bookmark state
-		await expect(page.locator('button[title="Bookmark"]').first()).toBeVisible();
-	});
+	return {
+		...post,
+		...counts,
+	};
+}
 
-	test("should navigate to bookmarks page", async ({ page }) => {
-		// Click bookmarks link in header navigation
-		const bookmarksLink = page.locator('nav a[href="/bookmarks"]');
-		await expect(bookmarksLink).toBeVisible();
-		await bookmarksLink.click();
+export async function updatePost(input: UpdatePostInput) {
+	if (!input.content || input.content.length === 0) {
+		throw new Error("Post content is required");
+	}
 
-		await expect(page).toHaveURL("/bookmarks");
-		await expect(page.getByRole("heading", { name: "Bookmarks" })).toBeVisible();
-	});
+	if (input.content.length > 280) {
+		throw new Error("Post content must be 280 characters or less");
+	}
 
-	test("should show bookmarked posts on bookmarks page", async ({ page }) => {
-		// Create and bookmark a post
-		const postContent = `Bookmark test ${Date.now()}`;
-		await page.fill('textarea[placeholder*="happening"]', postContent);
-		await page.click('button:has-text("Post")');
-		await waitForHydration(page);
+	const post = await db.select().from(posts).where(eq(posts.id, input.postId)).get();
 
-		// Bookmark the post
-		const postArticle = page.locator("article").filter({ hasText: postContent }).first();
-		const bookmarkButton = postArticle.locator('button[title="Bookmark"]');
-		await bookmarkButton.click();
-		await waitForHydration(page);
+	if (!post) {
+		throw new Error("Post not found");
+	}
 
-		// Navigate to bookmarks page
-		await page.goto("/bookmarks", { waitUntil: "networkidle" });
-		await waitForHydration(page);
+	if (post.authorId !== input.userId) {
+		throw new Error("You can only edit your own posts");
+	}
 
-		// Post should appear on bookmarks page
-		await expect(page.getByText(postContent)).toBeVisible();
-	});
+	// Check edit window (5 minutes)
+	const now = Date.now();
+	const postTime = post.createdAt.getTime();
+	if (now - postTime > 300000) {
+		throw new Error("Edit window has expired (5 minutes)");
+	}
 
-	test("should show bookmarks list or empty state", async ({ page }) => {
-		// Navigate directly to bookmarks page
-		await page.goto("/bookmarks", { waitUntil: "networkidle" });
-		await waitForHydration(page);
+	await db
+		.update(posts)
+		.set({
+			content: input.content,
+			updatedAt: new Date(),
+		})
+		.where(eq(posts.id, input.postId));
 
-		// Page should load with either bookmarks or empty state
-		const hasBookmarks = await page.locator('button[title="Remove bookmark"]').first().isVisible();
-		const hasEmptyState = await page.getByText("No bookmarks yet").isVisible();
+	return { success: true };
+}
 
-		// One of these should be true
-		expect(hasBookmarks || hasEmptyState).toBe(true);
-	});
-});
+export async function deletePost(postId: string, userId: string) {
+	const post = await db.select().from(posts).where(eq(posts.id, postId)).get();
+
+	if (!post) {
+		throw new Error("Post not found");
+	}
+
+	if (post.authorId !== userId) {
+		throw new Error("You can only delete your own posts");
+	}
+
+	await db.delete(posts).where(eq(posts.id, postId));
+
+	return { success: true };
+}
+
+export async function getPosts(options: GetPostsOptions = {}) {
+	const limit = options.limit || 20;
+	const offset = options.offset || 0;
+
+	const result = await db
+		.select({
+			id: posts.id,
+			content: posts.content,
+			createdAt: posts.createdAt,
+			updatedAt: posts.updatedAt,
+			author: {
+				id: users.id,
+				username: users.username,
+				displayName: users.displayName,
+				avatarUrl: users.avatarUrl,
+			},
+		})
+		.from(posts)
+		.leftJoin(users, eq(posts.authorId, users.id))
+		.orderBy(desc(posts.createdAt))
+		.limit(limit)
+		.offset(offset);
+
+	const postsWithCounts = await Promise.all(
+		result.map(async (post) => {
+			const counts = await getPostCounts(post.id, options.userId);
+			return { ...post, ...counts };
+		}),
+	);
+
+	return postsWithCounts;
+}
+
+export async function getUserPosts(username: string, userId?: string) {
+	const user = await db.select().from(users).where(eq(users.username, username)).get();
+
+	if (!user) {
+		throw new Error("User not found");
+	}
+
+	const result = await db
+		.select({
+			id: posts.id,
+			content: posts.content,
+			createdAt: posts.createdAt,
+			updatedAt: posts.updatedAt,
+			author: {
+				id: users.id,
+				username: users.username,
+				displayName: users.displayName,
+				avatarUrl: users.avatarUrl,
+			},
+		})
+		.from(posts)
+		.leftJoin(users, eq(posts.authorId, users.id))
+		.where(eq(posts.authorId, user.id))
+		.orderBy(desc(posts.createdAt));
+
+	const postsWithCounts = await Promise.all(
+		result.map(async (post) => {
+			const counts = await getPostCounts(post.id, userId);
+			return { ...post, ...counts };
+		}),
+	);
+
+	return postsWithCounts;
+}
