@@ -3,37 +3,62 @@
 	"tasks": {
 		"build": {
 			"dependsOn": ["^build"],
-			"outputs": ["dist/**", ".output/**", ".vinxi/**", ".tanstack/**", "generated/**"]
+			"outputs": ["dist/**", ".output/**", ".vinxi/**", ".tanstack/**", "generated/**"],
+			"cache": true
 		},
 		"dev": {
 			"cache": false,
 			"persistent": true
 		},
 		"lint": {
-			"dependsOn": ["^build"]
+			"dependsOn": [],
+			"outputs": [],
+			"cache": true
 		},
 		"typecheck": {
-			"dependsOn": ["^build"]
+			"dependsOn": [],
+			"outputs": [],
+			"cache": true
 		},
 		"test": {
-			"dependsOn": ["^build"],
-			"outputs": ["coverage/**"]
+			"dependsOn": [],
+			"outputs": ["coverage/**"],
+			"cache": true
 		},
 		"test:unit": {
-			"dependsOn": ["^build"],
-			"outputs": ["coverage/**"]
+			"dependsOn": [],
+			"outputs": ["coverage/**"],
+			"cache": true
 		},
 		"test:integration": {
-			"dependsOn": ["^build"]
+			"dependsOn": [],
+			"outputs": ["coverage/**"],
+			"cache": true
 		},
 		"test:e2e": {
-			"dependsOn": ["build"]
+			"dependsOn": [],
+			"outputs": [],
+			"cache": false,
+			"persistent": true
 		},
 		"proto:generate": {
-			"outputs": ["generated/**"]
+			"dependsOn": [],
+			"outputs": ["generated/**"],
+			"cache": true
 		},
-		"db:generate": {},
-		"db:migrate": {},
-		"db:seed": {}
-	}
+		"db:generate": {
+			"dependsOn": [],
+			"cache": false
+		},
+		"db:migrate": {
+			"dependsOn": [],
+			"cache": false
+		},
+		"db:seed": {
+			"dependsOn": ["db:migrate"],
+			"cache": false
+		}
+	},
+	"globalEnv": ["NODE_ENV"],
+	"globalPassThroughEnv": ["DATABASE_URL"]
 }
